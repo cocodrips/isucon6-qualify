@@ -26,6 +26,7 @@ import (
 	"github.com/gorilla/sessions"
 	"github.com/unrolled/render"
 	"sync"
+	"compress/gzip"
 )
 
 const (
@@ -213,7 +214,11 @@ func topHandler(w http.ResponseWriter, r *http.Request) {
 		pages = append(pages, i)
 	}
 
-	re.HTML(w, http.StatusOK, "index", struct {
+	w.Header().Set("Content-Encoding", "gzip")
+	w.Header().Set("Content-Type", "text/html")
+	ww := gzip.NewWriter(w)
+
+	re.HTML(ww, http.StatusOK, "index", struct {
 		Context  context.Context
 		Entries  []*Entry
 		Page     int
@@ -222,6 +227,7 @@ func topHandler(w http.ResponseWriter, r *http.Request) {
 	}{
 		r.Context(), entries, page, lastPage, pages,
 	})
+	ww.Close()
 }
 
 func robotsHandler(w http.ResponseWriter, r *http.Request) {
