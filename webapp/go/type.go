@@ -41,5 +41,6 @@ type EntryWithCtx struct {
 type TrieNode struct {
 	childNodes map[rune]*TrieNode
 	rune       rune
+	str        string
 	isLeafNode bool
 }
