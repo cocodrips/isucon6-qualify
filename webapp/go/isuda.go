@@ -130,20 +130,6 @@ func scanKeyword(node *TrieNode, nextRune rune) *TrieNode {
 	return nil
 }
 
-func isKeyword(s string) bool {
-	node := trieRoot
-	for _, rune_ := range s {
-		if child, ok := node.childNodes[rune_]; ok {
-			//fmt.Printf("%c ", rune_)
-			node = child
-		} else {
-			return false
-		}
-	}
-	//fmt.Println()
-	return node.isLeafNode
-}
-
 func initializeHandler(w http.ResponseWriter, r *http.Request) {
 	_, err := db.Exec(`DELETE FROM entry WHERE id > 7101`)
 	panicIf(err)
@@ -187,13 +173,12 @@ func topHandler(w http.ResponseWriter, r *http.Request) {
 		panicIf(err)
 	}
 	entries := make([]*Entry, 0, 10)
-	keywords := getKeywords()
 	for rows.Next() {
 		e := Entry{}
 		// err := rows.Scan(&e.ID, &e.AuthorID, &e.Keyword, &e.Description, &e.UpdatedAt, &e.CreatedAt)
 		err := rows.Scan(&e.Keyword, &e.Description)
 		panicIf(err)
-		e.Html = htmlify(w, r, e.Description, keywords)
+		e.Html = htmlify(w, r, e.Description)
 		e.Stars = loadStars(e.Keyword)
 		entries = append(entries, &e)
 	}
@@ -369,8 +354,7 @@ func keywordByKeywordHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	keywords := getKeywords()
-	e.Html = htmlify(w, r, e.Description, keywords)
+	e.Html = htmlify(w, r, e.Description)
 	e.Stars = loadStars(e.Keyword)
 
 	// Html, Keyword, StarsのみでOK
@@ -433,7 +417,7 @@ func getKeywords() []string {
 	return keywords
 }
 
-func htmlify(w http.ResponseWriter, r *http.Request, content string, keywords []string) string {
+func htmlify(w http.ResponseWriter, r *http.Request, content string) string {
 	if content == "" {
 		return ""
 	}
