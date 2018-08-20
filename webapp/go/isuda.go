@@ -417,40 +417,79 @@ func getKeywords() []string {
 	return keywords
 }
 
+func createLink(r *http.Request, kw string) string {
+	u, err := r.URL.Parse(baseUrl.String() + "/keyword/" + pathURIEscape(kw))
+	panicIf(err)
+	link := fmt.Sprintf("<a href=\"%s\">%s</a>", u, html.EscapeString(kw))
+	return link
+}
+
 func htmlify(w http.ResponseWriter, r *http.Request, content string) string {
 	if content == "" {
 		return ""
 	}
 
 	var builder strings.Builder
+
 	node := trieRoot
 	lastRuneIndex := 0
+	lastHitIndex := 0
 
 	contentRune := []rune(content)
 	contentLength := len(contentRune)
-	for i := 0; i < contentLength; i++ {
+
+	for i := 0; i < contentLength; {
 		rune_ := contentRune[i]
 		next := scanKeyword(node, rune_)
-		if i != contentLength-1 && next != nil {
+		if i < contentLength-1 && next != nil {
+			if node.isLeafNode {
+				lastHitIndex = i
+			}
+			//kw := string(contentRune[lastRuneIndex:i+1])
+			//fmt.Println("NEXT", kw)
 			node = next
+			i++
 		} else {
 			if node.isLeafNode {
-				//　次がない && 1個前で追われる
-				kw := string(contentRune[lastRuneIndex:i])
-				// kwがキーワードとしてあるn
-				u, err := r.URL.Parse(baseUrl.String() + "/keyword/" + pathURIEscape(kw))
-				panicIf(err)
-				link := fmt.Sprintf("<a href=\"%s\">%s</a>", u, html.EscapeString(kw))
-				fmt.Fprint(&builder, link)
-				lastRuneIndex = i;
-				i--;
-			} else {
-				// 次がない && ヒットしない
-				kw := string(contentRune[lastRuneIndex : lastRuneIndex+1])
-				fmt.Fprint(&builder, kw)
+				//　(次がない||最後の文字) && 1個前で終了可能
+				var kw string
+				if i == contentLength-1 {
+					// 一番最後の文字のとき
+					kw = string(contentRune[lastRuneIndex : i+1])
+				} else {
+					kw = string(contentRune[lastRuneIndex:i])
+				}
 
-				i = lastRuneIndex
-				lastRuneIndex++
+				//fmt.Println("KEYWORD", kw)
+				link := createLink(r, kw)
+				fmt.Fprint(&builder, link)
+
+				if i == contentLength-1 {
+					break
+				}
+				lastRuneIndex = i;
+				lastHitIndex = 0
+			} else {
+				if lastHitIndex > 0 {
+					// マッチしなかったが、以前にヒットしたワードがあり、そこまで進める
+					kw := string(contentRune[lastRuneIndex:lastHitIndex])
+					//fmt.Println("BACK KEYWORD", kw)
+					link := createLink(r, kw)
+					fmt.Fprint(&builder, link)
+
+					lastRuneIndex = lastHitIndex;
+					i = lastHitIndex
+					lastHitIndex = 0
+				} else {
+					// それよりも短いワードでも1度もマッチしない場合、1文字進める
+					kw := string(contentRune[lastRuneIndex : lastRuneIndex+1])
+					fmt.Fprint(&builder, kw)
+					//fmt.Println("MISS-HIT", string(contentRune[lastRuneIndex:i+1]))
+
+					lastRuneIndex++
+					i = lastRuneIndex
+				}
+
 			}
 			node = trieRoot
 		}
