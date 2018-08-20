@@ -481,6 +481,9 @@ func htmlify(w http.ResponseWriter, r *http.Request, content string) string {
 			}
 			node = trieRoot
 		}
+		if rune_ == -1 {
+			break
+		}
 	}
 
 	return strings.Replace(builder.String(), "\n", "<br />\n", -1)
