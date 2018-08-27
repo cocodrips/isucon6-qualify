@@ -430,13 +430,13 @@ func htmlify(w http.ResponseWriter, r *http.Request, content string) string {
 	for i := 0; i < contentLength; {
 		rune_ := contentRune[i]
 		next := scanKeyword(node, rune_)
-		fmt.Println(string([]rune{rune_}))
+		//fmt.Println(string([]rune{rune_}))
 		if i < contentLength-1 && next != nil {
 			if node.isLeafNode {
 				lastHitIndex = i
 			}
-			kw := string(contentRune[lastRuneIndex : i+1])
-			fmt.Println("NEXT", kw)
+			//kw := string(contentRune[lastRuneIndex : i+1])
+			//fmt.Println("NEXT", kw)
 			node = next
 			i++
 		} else {
@@ -444,7 +444,7 @@ func htmlify(w http.ResponseWriter, r *http.Request, content string) string {
 				//　(次がない||最後の文字) && 1個前で終了可能
 				kw := string(contentRune[lastRuneIndex:i])
 
-				fmt.Println("KEYWORD", kw)
+				//fmt.Println("KEYWORD", kw)
 				link := createLink(r, kw)
 				fmt.Fprint(&builder, link)
 
@@ -458,7 +458,7 @@ func htmlify(w http.ResponseWriter, r *http.Request, content string) string {
 				if lastHitIndex > 0 {
 					// マッチしなかったが、以前にヒットしたワードがあり、そこまで進める
 					kw := string(contentRune[lastRuneIndex:lastHitIndex])
-					fmt.Println("BACK KEYWORD", kw)
+					//fmt.Println("BACK KEYWORD", kw)
 					link := createLink(r, kw)
 					fmt.Fprint(&builder, link)
 
@@ -472,7 +472,7 @@ func htmlify(w http.ResponseWriter, r *http.Request, content string) string {
 					// それよりも短いワードでも1度もマッチしない場合、1文字進める
 					kw := string(contentRune[lastRuneIndex : lastRuneIndex+1])
 					fmt.Fprint(&builder, kw)
-					fmt.Println("MISS-HIT", string(contentRune[lastRuneIndex:i+1]))
+					//fmt.Println("MISS-HIT", string(contentRune[lastRuneIndex:i+1]))
 
 					lastRuneIndex++
 					i = lastRuneIndex
