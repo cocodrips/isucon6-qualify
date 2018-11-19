@@ -26,6 +26,7 @@ import (
 	"github.com/gorilla/sessions"
 	"github.com/unrolled/render"
 	"sync"
+	"compress/gzip"
 )
 
 const (
@@ -93,7 +94,10 @@ func addKeywordToTree(s string) {
 			next := TrieNode{
 				childNodes: map[rune]*TrieNode{},
 				rune:       rune_,
-				isLeafNode: false,}
+				isLeafNode: false,
+				// debug
+				str: string([]rune{rune_}),
+			}
 			node.childNodes[rune_] = &next
 			node = &next
 		}
@@ -127,20 +131,6 @@ func scanKeyword(node *TrieNode, nextRune rune) *TrieNode {
 		return child
 	}
 	return nil
-}
-
-func isKeyword(s string) bool {
-	node := trieRoot
-	for _, rune_ := range s {
-		if child, ok := node.childNodes[rune_]; ok {
-			//fmt.Printf("%c ", rune_)
-			node = child
-		} else {
-			return false
-		}
-	}
-	//fmt.Println()
-	return node.isLeafNode
 }
 
 func initializeHandler(w http.ResponseWriter, r *http.Request) {
@@ -186,13 +176,12 @@ func topHandler(w http.ResponseWriter, r *http.Request) {
 		panicIf(err)
 	}
 	entries := make([]*Entry, 0, 10)
-	keywords := getKeywords()
 	for rows.Next() {
 		e := Entry{}
 		// err := rows.Scan(&e.ID, &e.AuthorID, &e.Keyword, &e.Description, &e.UpdatedAt, &e.CreatedAt)
 		err := rows.Scan(&e.Keyword, &e.Description)
 		panicIf(err)
-		e.Html = htmlify(w, r, e.Description, keywords)
+		e.Html = htmlify(w, r, e.Description)
 		e.Stars = loadStars(e.Keyword)
 		entries = append(entries, &e)
 	}
@@ -213,7 +202,11 @@ func topHandler(w http.ResponseWriter, r *http.Request) {
 		pages = append(pages, i)
 	}
 
-	re.HTML(w, http.StatusOK, "index", struct {
+	w.Header().Set("Content-Encoding", "gzip")
+	w.Header().Set("Content-Type", "text/html")
+	ww := gzip.NewWriter(w)
+
+	re.HTML(ww, http.StatusOK, "index", struct {
 		Context  context.Context
 		Entries  []*Entry
 		Page     int
@@ -222,6 +215,7 @@ func topHandler(w http.ResponseWriter, r *http.Request) {
 	}{
 		r.Context(), entries, page, lastPage, pages,
 	})
+	ww.Close()
 }
 
 func robotsHandler(w http.ResponseWriter, r *http.Request) {
@@ -363,8 +357,7 @@ func keywordByKeywordHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	keywords := getKeywords()
-	e.Html = htmlify(w, r, e.Description, keywords)
+	e.Html = htmlify(w, r, e.Description)
 	e.Stars = loadStars(e.Keyword)
 
 	// Html, Keyword, StarsのみでOK
@@ -412,57 +405,84 @@ func keywordByKeywordDeleteHandler(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/", http.StatusFound)
 }
 
-func getKeywords() []string {
-	keywords := make([]string, 0, 500)
-	rows, err := db.Query(`SELECT keyword FROM entry ORDER BY keyword_length DESC`)
+func createLink(r *http.Request, kw string) string {
+	u, err := r.URL.Parse(baseUrl.String() + "/keyword/" + pathURIEscape(kw))
 	panicIf(err)
-
-	for rows.Next() {
-		s := ""
-		err := rows.Scan(&s)
-		panicIf(err)
-		keywords = append(keywords, s)
-	}
-
-	return keywords
+	link := fmt.Sprintf("<a href=\"%s\">%s</a>", u, html.EscapeString(kw))
+	return link
 }
 
-func htmlify(w http.ResponseWriter, r *http.Request, content string, keywords []string) string {
+func htmlify(w http.ResponseWriter, r *http.Request, content string) string {
 	if content == "" {
 		return ""
 	}
 
 	var builder strings.Builder
+
 	node := trieRoot
 	lastRuneIndex := 0
+	lastHitIndex := 0
 
 	contentRune := []rune(content)
+	contentRune = append(contentRune, -1)
 	contentLength := len(contentRune)
-	for i := 0; i < contentLength; i++ {
+
+	for i := 0; i < contentLength; {
 		rune_ := contentRune[i]
 		next := scanKeyword(node, rune_)
-		if i != contentLength-1 && next != nil {
+		//fmt.Println(string([]rune{rune_}))
+		if i < contentLength-1 && next != nil {
+			if node.isLeafNode {
+				lastHitIndex = i
+			}
+			//kw := string(contentRune[lastRuneIndex : i+1])
+			//fmt.Println("NEXT", kw)
 			node = next
+			i++
 		} else {
 			if node.isLeafNode {
-				//　次がない && 1個前で追われる
+				//　(次がない||最後の文字) && 1個前で終了可能
 				kw := string(contentRune[lastRuneIndex:i])
-				// kwがキーワードとしてあるn
-				u, err := r.URL.Parse(baseUrl.String() + "/keyword/" + pathURIEscape(kw))
-				panicIf(err)
-				link := fmt.Sprintf("<a href=\"%s\">%s</a>", u, html.EscapeString(kw))
-				fmt.Fprint(&builder, link)
-				lastRuneIndex = i;
-				i--;
-			} else {
-				// 次がない && ヒットしない
-				kw := string(contentRune[lastRuneIndex : lastRuneIndex+1])
-				fmt.Fprint(&builder, kw)
 
-				i = lastRuneIndex
-				lastRuneIndex++
+				//fmt.Println("KEYWORD", kw)
+				link := createLink(r, kw)
+				fmt.Fprint(&builder, link)
+
+				if rune_ == -1 {
+					break
+				}
+				lastRuneIndex = i;
+				lastHitIndex = 0
+
+			} else {
+				if lastHitIndex > 0 {
+					// マッチしなかったが、以前にヒットしたワードがあり、そこまで進める
+					kw := string(contentRune[lastRuneIndex:lastHitIndex])
+					//fmt.Println("BACK KEYWORD", kw)
+					link := createLink(r, kw)
+					fmt.Fprint(&builder, link)
+
+					lastRuneIndex = lastHitIndex;
+					i = lastHitIndex
+					lastHitIndex = 0
+				} else {
+					if rune_ == -1 {
+						break
+					}
+					// それよりも短いワードでも1度もマッチしない場合、1文字進める
+					kw := string(contentRune[lastRuneIndex : lastRuneIndex+1])
+					fmt.Fprint(&builder, kw)
+					//fmt.Println("MISS-HIT", string(contentRune[lastRuneIndex:i+1]))
+
+					lastRuneIndex++
+					i = lastRuneIndex
+				}
+
 			}
 			node = trieRoot
+		}
+		if rune_ == -1 {
+			break
 		}
 	}
 
